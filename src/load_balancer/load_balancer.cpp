@@ -13,7 +13,6 @@ void LoadBalancer::distributeRequest(){
     exit(1);
   }
   int serverIndex = strategy->selectServer(servers);
-  std::cout<<serverIndex<<std::endl;
   if(serverIndex == -1){
     std::cout<<"No available server to handle the request"<<std::endl;
     return;
