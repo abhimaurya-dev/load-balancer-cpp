@@ -66,20 +66,6 @@ int main(int argc, char* argv[]) {
         loadBalancer.addServer(server);
     }
 
-
-
-
-
-// int main() {
-//   auto strategy = std::unique_ptr<RoundRobinStrategy>(new RoundRobinStrategy());
-//   LoadBalancer loadBalancer(std::move(strategy));
-
-//   // Add backend servers
-//   loadBalancer.addServer(BackendServer("127.0.0.1", 8081));
-//   loadBalancer.addServer(BackendServer("127.0.0.1", 8082));
-//   loadBalancer.addServer(BackendServer("127.0.0.1", 8083));
-
-  // Debug: Print initial server details
   std::cout << "Initial backend server details:" << std::endl;
   loadBalancer.printServerDetails();
 

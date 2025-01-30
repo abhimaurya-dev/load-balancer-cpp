@@ -8,7 +8,6 @@ void LoadBalancer::addServer(const BackendServer& server){
 }
 
 void LoadBalancer::distributeRequest(){
-  std::cout<<"distributimg";
   if(strategy == nullptr){
     std::cout<<"Strategy not initialized";
     exit(1);
