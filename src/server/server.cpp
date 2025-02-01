@@ -4,7 +4,26 @@
 #include <unistd.h>
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
-Server::Server(int port) :  server_socket(INVALID_SOCKET) ,port(port) {}
+
+
+
+Server::Server(int port, LoadBalancer& lb) : port(port), server_socket(INVALID_SOCKET) , loadBalancer(lb) {}
+
+// Helper function to read HTTP requests
+std::string Server::readHttpRequest(SOCKET client_socket) {
+    char buffer[4096];
+    int bytesReceived = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
+    if (bytesReceived > 0) {
+        buffer[bytesReceived] = '\0';
+        return std::string(buffer);
+    }
+    return "";
+}
+
+// Helper function to send HTTP response
+void Server::sendHttpResponse(SOCKET client_socket, const std::string& response) {
+    send(client_socket, response.c_str(), response.length(), 0);
+}
 
 /**
  * @brief Retrieves the singleton instance of the Server.
@@ -16,22 +35,11 @@ Server::Server(int port) :  server_socket(INVALID_SOCKET) ,port(port) {}
  * @param port The port number to initialize the Server instance with.
  * @return Server& A reference to the singleton Server instance.
  */
-Server& Server::getInstance(int port) {
-  static Server instance(port);
+Server& Server::getInstance(int port, LoadBalancer& lb) {
+  static Server instance(port, lb);
   return instance;
 }
 
-
-/**
- * @brief Sets up a server socket for listening to incoming connections.
- * 
- * This function initializes the Winsock library, creates a TCP socket,
- * binds it to a specified port, and sets it to listen for incoming connections.
- * 
- * @throws std::runtime_error if Winsock initialization fails, socket creation fails,
- *         binding fails, or setting the socket to listen fails. The error message
- *         will contain the specific error code.
- */
 void Server::setupSocket(){
   WSADATA wsaData;
   int wsaerr;
@@ -67,58 +75,130 @@ void Server::setupSocket(){
   }
 }
 
-
-/**
- * @brief Accepts incoming client connections on the server socket.
- *
- * This function enters an infinite loop, continuously listening for and accepting
- * new client connections. For each accepted connection, it retrieves the client's
- * IP address and port number, and logs the connection details to the console.
- * If an error occurs during the acceptance of a connection, an exception is thrown
- * with the error message.
- *
- * @throws std::runtime_error if accepting a connection fails.
- */
-void Server::acceptConnections() {
-  std::cout << "Server listening on port " << port << "..." << std::endl;
-  while (true) {
-    sockaddr_in client_addr;
-    int client_addr_len = sizeof(client_addr);
-    SOCKET client_socket = accept(server_socket, (sockaddr*)&client_addr, &client_addr_len);
-    if (client_socket == INVALID_SOCKET) {
-      std::string errMsg = "Accept connection failed(): " + std::to_string(WSAGetLastError());
-      throw std::runtime_error(errMsg);
-      continue;
-    }
-#ifdef _WIN32 
-    wchar_t client_ip[INET_ADDRSTRLEN];
-    DWORD dwSize = sizeof(client_ip) * sizeof(wchar_t);
-    if (WSAAddressToStringW((LPSOCKADDR)&client_addr, sizeof(client_addr), NULL, client_ip, &dwSize) == 0) {
-      std::cerr << "Failed to convert client IP address to string." << std::endl;
-      closesocket(client_socket);
-      continue;
-    }
-#endif
+// void Server::acceptConnections() {
+//   std::cout << "Server listening on port " << port << "..." << std::endl;
+//   while (true) {
+//     sockaddr_in client_addr;
+//     int client_addr_len = sizeof(client_addr);
+//     SOCKET client_socket = accept(server_socket, (sockaddr*)&client_addr, &client_addr_len);
+//     if (client_socket == INVALID_SOCKET) {
+//       std::string errMsg = "Accept connection failed(): " + std::to_string(WSAGetLastError());
+//       throw std::runtime_error(errMsg);
+//       continue;
+//     }
+// #ifdef _WIN32 
+//     wchar_t client_ip[INET_ADDRSTRLEN];
+//     DWORD dwSize = sizeof(client_ip) * sizeof(wchar_t);
+//     if (WSAAddressToStringW((LPSOCKADDR)&client_addr, sizeof(client_addr), NULL, client_ip, &dwSize) == 0) {
+//       std::cerr << "Failed to convert client IP address to string." << std::endl;
+//       closesocket(client_socket);
+//       continue;
+//     }
+// #endif
     
-    unsigned short client_port = ntohs(client_addr.sin_port);
-    std::cout << "New Client Connected: " << client_ip << ":" << client_port << std::endl;
-    closesocket(client_socket);
-  }
+//     unsigned short client_port = ntohs(client_addr.sin_port);
+//     std::cout << "New Client Connected: " << client_ip << ":" << client_port << std::endl;
+//     closesocket(client_socket);
+//   }
+// }
+
+void Server::acceptConnections() {
+    std::cout << "Server listening on port " << port << "..." << std::endl;
+    while (true) {
+        sockaddr_in client_addr;
+        int client_addr_len = sizeof(client_addr);
+        SOCKET client_socket = accept(server_socket, (sockaddr*)&client_addr, &client_addr_len);
+        if (client_socket == INVALID_SOCKET) {
+            std::cerr << "Accept connection failed(): " << WSAGetLastError() << std::endl;
+            continue;
+        }
+
+        std::string clientRequest = readHttpRequest(client_socket);
+
+        // Use LoadBalancer to get a backend server
+        try {
+            BackendServer selectedServer = loadBalancer.distributeRequest(); // Assuming you have a LoadBalancer instance
+
+            // Forward the HTTP request to the backend server
+            SOCKET backendSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            sockaddr_in backendAddr{};
+            backendAddr.sin_family = AF_INET;
+            backendAddr.sin_port = htons(selectedServer.getPort());
+
+            // Use WSAStringToAddressA to resolve the IP address
+            int addrSize = sizeof(sockaddr_in);
+            if (WSAStringToAddressA(
+                    (LPSTR)selectedServer.getIpAddress().c_str(),
+                    AF_INET,
+                    nullptr,
+                    (LPSOCKADDR)&backendAddr,
+                    &addrSize) != 0) {
+                std::cerr << "WSAStringToAddress failed(): " << WSAGetLastError() << std::endl;
+                closesocket(client_socket);
+                closesocket(backendSocket);
+                continue;
+            }
+            
+char ipStr[INET_ADDRSTRLEN]; // Buffer to hold the IP address string
+DWORD dwSize = INET_ADDRSTRLEN;
+
+// Assuming backendAddr is a sockaddr_in*
+sockaddr_in addr = (sockaddr_in)backendAddr; // Cast to sockaddr_in
+
+// Use WSAAddressToString to convert the address to a string
+int result = WSAAddressToStringA(
+    (LPSOCKADDR)&addr,            // Cast to LPSOCKADDR (sockaddr*)
+    sizeof(SOCKADDR_IN),         // Size of sockaddr_in for IPv4
+    NULL,                        // No filter
+    ipStr,                       // Buffer to store the string
+    &dwSize                      // Length of the buffer
+);
+
+if (result == 0) {
+    std::cout << "IP Address: " << ipStr << std::endl;
+} else {
+    std::cerr << "WSAAddressToString failed with error: " << WSAGetLastError() << std::endl;
+}
+            // Connect to the backend server
+            // std::cout<<backendAddr.sin_addr.S_un.S_addr<<std::endl;
+            if (connect(backendSocket, (sockaddr*)&backendAddr, sizeof(backendAddr)) == SOCKET_ERROR) {
+                std::cerr << "Failed to connect to backend server." << std::endl;
+                closesocket(client_socket);
+                closesocket(backendSocket);
+                continue;
+            }
+
+            // Send the request to the backend server
+            send(backendSocket, clientRequest.c_str(), clientRequest.length(), 0);
+
+            // Receive the response from the backend server
+            std::string backendResponse = readHttpRequest(backendSocket);
+            closesocket(backendSocket);
+
+            // Send the backend response back to the client
+            sendHttpResponse(client_socket, backendResponse);
+        } catch (const std::exception& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+        }
+
+        closesocket(client_socket);
+    }
 }
 
-/**
- * @brief Starts the server by setting up the socket and accepting connections.
- * 
- * This function initializes the server by setting up the necessary socket
- * configurations and begins accepting incoming client connections. Once the
- * server is stopped, it performs cleanup operations for Winsock.
- */
+
 void Server::start() {
-  setupSocket();
-  acceptConnections();
+    try {
+        setupSocket();
+        acceptConnections();
+    } catch (const std::exception& e) {
+        std::cerr << "Server error: " << e.what() << std::endl;
+    }
 
-  // Cleanup Winsock
-  closesocket(server_socket);
-  WSACleanup();
+    // Cleanup Winsock
+    if (server_socket != INVALID_SOCKET) {
+        closesocket(server_socket);
+    }
+    WSACleanup();
 }
+
 

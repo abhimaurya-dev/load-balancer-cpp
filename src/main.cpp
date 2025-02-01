@@ -69,12 +69,14 @@ int main(int argc, char* argv[]) {
   std::cout << "Initial backend server details:" << std::endl;
   loadBalancer.printServerDetails();
 
-  // Simulate distributing requests
-  std::cout << "\nSimulating request distribution:" << std::endl;
-  for (int i = 0; i < 5; ++i) {
-    std::cout<<"hello";
-      loadBalancer.distributeRequest();
-  }
+//   // Simulate distributing requests
+//   std::cout << "\nSimulating request distribution:" << std::endl;
+//   for (int i = 0; i < 5; ++i) {
+//     std::cout<<"hello";
+//       loadBalancer.distributeRequest();
+//   }
+    Server& loadBalancerServer = Server::getInstance(loadBalancerPort, loadBalancer);
+    loadBalancerServer.start();
 
   // Debug: Print updated server details
   std::cout << "\nUpdated backend server details after requests:" << std::endl;

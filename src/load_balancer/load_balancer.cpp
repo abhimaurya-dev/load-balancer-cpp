@@ -7,7 +7,7 @@ void LoadBalancer::addServer(const BackendServer& server){
   servers.push_back(server);
 }
 
-void LoadBalancer::distributeRequest(){
+BackendServer& LoadBalancer::distributeRequest(){
   if(strategy == nullptr){
     std::cout<<"Strategy not initialized";
     exit(1);
@@ -15,14 +15,16 @@ void LoadBalancer::distributeRequest(){
   int serverIndex = strategy->selectServer(servers);
   if(serverIndex == -1){
     std::cout<<"No available server to handle the request"<<std::endl;
-    return;
+    static BackendServer invalidServer = BackendServer("0.0.0.0", 0000);
+    return invalidServer;
   }
 
   BackendServer& selectedServer = servers[serverIndex];
 
   std::cout<<"Request routed to server: "<< selectedServer.getIpAddress() << ":" << selectedServer.getPort() << std::endl;
 
-  selectedServer.incrementConnections(); 
+  selectedServer.incrementConnections();
+  return selectedServer;
 }
 
 void LoadBalancer::printServerDetails() const {

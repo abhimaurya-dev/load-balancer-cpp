@@ -15,7 +15,7 @@ class LoadBalancer{
   public: LoadBalancer(std::unique_ptr<LoadBalancingStrategy> strategy);
   public: void addServer(const BackendServer& server);
   public: int getServerIndex();
-  public: void distributeRequest();
+  public: BackendServer& distributeRequest();
   public: void printServerDetails() const;
 
   private: std::vector<BackendServer> servers;
